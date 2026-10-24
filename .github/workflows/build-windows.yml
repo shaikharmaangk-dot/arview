@@ -1,0 +1,79 @@
+name: Build RustDesk for Windows
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "rustdesk-master.zip"
+      - ".github/workflows/build-windows.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    timeout-minutes: 360
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Extract RustDesk source archive
+        shell: pwsh
+        run: |
+          if (!(Test-Path "rustdesk-master.zip")) {
+            throw "rustdesk-master.zip is missing from the repository."
+          }
+          Expand-Archive -Path "rustdesk-master.zip" -DestinationPath "$env:RUNNER_TEMP/rustdesk-src" -Force
+          $root = Get-ChildItem "$env:RUNNER_TEMP/rustdesk-src" -Directory | Select-Object -First 1
+          if (!$root -or !(Test-Path (Join-Path $root.FullName "Cargo.toml"))) {
+            throw "The ZIP must contain the RustDesk source tree with Cargo.toml at its top level."
+          }
+          "RUSTDESK_SRC=$($root.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Restore hbb_common submodule
+        shell: pwsh
+        run: |
+          $submodule = Join-Path $env:RUSTDESK_SRC "libs/hbb_common"
+          if (!(Test-Path (Join-Path $submodule "Cargo.toml"))) {
+            if (Test-Path $submodule) { Remove-Item $submodule -Recurse -Force }
+            New-Item -ItemType Directory -Force -Path (Split-Path $submodule) | Out-Null
+            git clone --depth 1 https://github.com/rustdesk/hbb_common.git $submodule
+          }
+          if (!(Test-Path (Join-Path $submodule "Cargo.toml"))) {
+            throw "Could not find libs/hbb_common/Cargo.toml after restoring the submodule."
+          }
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Install CMake and NASM
+        uses: lukka/get-cmake@latest
+
+      - name: Install vcpkg dependencies
+        shell: pwsh
+        run: |
+          vcpkg install libvpx:x64-windows-static libyuv:x64-windows-static opus:x64-windows-static aom:x64-windows-static
+          "VCPKG_ROOT=$env:VCPKG_INSTALLATION_ROOT" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Build RustDesk
+        shell: pwsh
+        working-directory: ${{ env.RUSTDESK_SRC }}
+        env:
+          VCPKG_DEFAULT_TRIPLET: x64-windows-static
+        run: |
+          cargo build --release --locked
+          if (!(Test-Path "target/release/rustdesk.exe")) {
+            throw "Build finished but target/release/rustdesk.exe was not found."
+          }
+
+      - name: Upload Windows EXE
+        uses: actions/upload-artifact@v4
+        with:
+          name: rustdesk-windows-x64
+          path: ${{ env.RUSTDESK_SRC }}/target/release/rustdesk.exe
+          if-no-files-found: error
+          retention-days: 14
