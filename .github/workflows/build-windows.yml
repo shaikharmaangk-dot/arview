@@ -65,6 +65,22 @@ jobs:
           }
           "VCPKG_ROOT=$env:VCPKG_INSTALLATION_ROOT" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
+          # The bundled RustDesk opus binding expects headers under include/opus/,
+          # while the vcpkg overlay may install the headers directly under include/.
+          $opusInclude = Join-Path $env:VCPKG_INSTALLATION_ROOT "installed/x64-windows-static/include"
+          $opusHeader = Join-Path $opusInclude "opus/opus_multistream.h"
+          if (!(Test-Path $opusHeader)) {
+            $flatHeader = Join-Path $opusInclude "opus_multistream.h"
+            if (Test-Path $flatHeader) {
+              $opusDir = Join-Path $opusInclude "opus"
+              New-Item -ItemType Directory -Force -Path $opusDir | Out-Null
+              Get-ChildItem $opusInclude -Filter "*.h" -File | Copy-Item -Destination $opusDir -Force
+            }
+          }
+          if (!(Test-Path $opusHeader)) {
+            throw "Opus headers are missing: expected $opusHeader. Check the vcpkg opus overlay."
+          }
+
       - name: Build RustDesk
         shell: pwsh
         env:
