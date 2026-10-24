@@ -55,8 +55,14 @@ jobs:
 
       - name: Install vcpkg dependencies
         shell: pwsh
+        env:
+          VCPKG_DEFAULT_TRIPLET: x64-windows-static
         run: |
-          vcpkg install libvpx:x64-windows-static libyuv:x64-windows-static opus:x64-windows-static aom:x64-windows-static
+          Set-Location $env:RUSTDESK_SRC
+          vcpkg install --triplet x64-windows-static
+          if (!$env:VCPKG_INSTALLATION_ROOT) {
+            throw "VCPKG_INSTALLATION_ROOT is not set on this runner."
+          }
           "VCPKG_ROOT=$env:VCPKG_INSTALLATION_ROOT" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: Build RustDesk
