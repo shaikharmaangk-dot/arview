@@ -65,8 +65,29 @@ jobs:
           }
           "VCPKG_ROOT=$env:VCPKG_INSTALLATION_ROOT" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
-          # Manifest-mode vcpkg installs into the source tree's vcpkg_installed directory.
-          # Non-manifest mode may install into VCPKG_ROOT/installed. Check both locations.
+          # The source archive can carry an older vcpkg baseline. Reinstall libvpx
+          # from the current vcpkg registry in classic mode so its public headers
+          # (especially vpx/vp8.h) are actually present in the global triplet.
+          $classicDir = Join-Path $env:RUNNER_TEMP "vcpkg-classic"
+          New-Item -ItemType Directory -Force -Path $classicDir | Out-Null
+          Push-Location $classicDir
+          try {
+            vcpkg remove libvpx:x64-windows-static
+            vcpkg install libvpx:x64-windows-static
+          }
+          finally {
+            Pop-Location
+          }
+
+          $vpxHeader = Join-Path $env:VCPKG_INSTALLATION_ROOT "installed/x64-windows-static/include/vpx/vp8.h"
+          if (!(Test-Path $vpxHeader)) {
+            Write-Host "Installed include directories:"
+            Get-ChildItem (Join-Path $env:VCPKG_INSTALLATION_ROOT "installed/x64-windows-static/include") -Directory -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name
+            throw "libvpx installation is incomplete: vpx/vp8.h is still missing at $vpxHeader"
+          }
+
+          # Manifest-mode vcpkg may install into the source tree's vcpkg_installed directory.
+          # Non-manifest mode installs into VCPKG_ROOT/installed. Check both locations.
           $candidateIncludes = @(
             (Join-Path $env:RUSTDESK_SRC "vcpkg_installed/x64-windows-static/include"),
             (Join-Path $env:VCPKG_INSTALLATION_ROOT "installed/x64-windows-static/include"),
