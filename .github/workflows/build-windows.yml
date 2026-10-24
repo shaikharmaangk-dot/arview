@@ -1,4 +1,4 @@
-name: Build RustDesk for Windows
+name: Build ARVIEW for Windows
 
 on:
   workflow_dispatch:
@@ -65,9 +65,27 @@ jobs:
           }
           "VCPKG_ROOT=$env:VCPKG_INSTALLATION_ROOT" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
-          # The bundled RustDesk opus binding expects headers under include/opus/,
-          # while the vcpkg overlay may install the headers directly under include/.
-          $opusInclude = Join-Path $env:VCPKG_INSTALLATION_ROOT "installed/x64-windows-static/include"
+          # Manifest-mode vcpkg installs into the source tree's vcpkg_installed directory.
+          # Non-manifest mode may install into VCPKG_ROOT/installed. Check both locations.
+          $candidateIncludes = @(
+            (Join-Path $env:RUSTDESK_SRC "vcpkg_installed/x64-windows-static/include"),
+            (Join-Path $env:VCPKG_INSTALLATION_ROOT "installed/x64-windows-static/include"),
+            (Join-Path $env:VCPKG_INSTALLATION_ROOT "installed/x64-windows/include")
+          )
+          $opusInclude = $candidateIncludes | Where-Object {
+            (Test-Path (Join-Path $_ "opus/opus_multistream.h")) -or
+            (Test-Path (Join-Path $_ "opus_multistream.h"))
+          } | Select-Object -First 1
+
+          if (!$opusInclude) {
+            Write-Host "Searching vcpkg install directories for Opus headers..."
+            $opusHeaderFound = Get-ChildItem $env:RUSTDESK_SRC,$env:VCPKG_INSTALLATION_ROOT -Filter "opus_multistream.h" -File -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($opusHeaderFound) { $opusInclude = $opusHeaderFound.Directory.FullName }
+          }
+          if (!$opusInclude) {
+            throw "Opus headers were not found in manifest-mode or classic vcpkg install directories."
+          }
+
           $opusHeader = Join-Path $opusInclude "opus/opus_multistream.h"
           if (!(Test-Path $opusHeader)) {
             $flatHeader = Join-Path $opusInclude "opus_multistream.h"
@@ -77,11 +95,11 @@ jobs:
               Get-ChildItem $opusInclude -Filter "*.h" -File | Copy-Item -Destination $opusDir -Force
             }
           }
-          if (!(Test-Path $opusHeader)) {
-            throw "Opus headers are missing: expected $opusHeader. Check the vcpkg opus overlay."
+          if (!(Test-Path (Join-Path $opusInclude "opus/opus_multistream.h"))) {
+            throw "Opus headers were found at $opusInclude but could not be arranged under include/opus/."
           }
 
-      - name: Build RustDesk
+      - name: Build ARVIEW
         shell: pwsh
         env:
           VCPKG_DEFAULT_TRIPLET: x64-windows-static
@@ -92,12 +110,12 @@ jobs:
           if (!(Test-Path $exe)) {
             throw "Build finished but target/release/rustdesk.exe was not found."
           }
-          Copy-Item $exe "$env:GITHUB_WORKSPACE/rustdesk.exe" -Force
+          Copy-Item $exe "$env:GITHUB_WORKSPACE/ARVIEW.exe" -Force
 
-      - name: Upload Windows EXE
+      - name: Upload ARVIEW EXE
         uses: actions/upload-artifact@v4
         with:
-          name: rustdesk-windows-x64
-          path: rustdesk.exe
+          name: arview-windows-x64
+          path: ARVIEW.exe
           if-no-files-found: error
           retention-days: 14
