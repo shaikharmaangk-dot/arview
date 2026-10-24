@@ -61,19 +61,21 @@ jobs:
 
       - name: Build RustDesk
         shell: pwsh
-        working-directory: ${{ env.RUSTDESK_SRC }}
         env:
           VCPKG_DEFAULT_TRIPLET: x64-windows-static
         run: |
+          Set-Location $env:RUSTDESK_SRC
           cargo build --release --locked
-          if (!(Test-Path "target/release/rustdesk.exe")) {
+          $exe = Join-Path $env:RUSTDESK_SRC "target/release/rustdesk.exe"
+          if (!(Test-Path $exe)) {
             throw "Build finished but target/release/rustdesk.exe was not found."
           }
+          Copy-Item $exe "$env:GITHUB_WORKSPACE/rustdesk.exe" -Force
 
       - name: Upload Windows EXE
         uses: actions/upload-artifact@v4
         with:
           name: rustdesk-windows-x64
-          path: ${{ env.RUSTDESK_SRC }}/target/release/rustdesk.exe
+          path: rustdesk.exe
           if-no-files-found: error
           retention-days: 14
